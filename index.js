@@ -1,12 +1,37 @@
 const express = require('express');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./swagger');
+const client = require('prom-client'); // 🔥 novo
 
 const app = express();
 app.use(express.json());
-
 const PORT = 3000;
 
+client.collectDefaultMetrics();
+
+// duração das requisições
+const httpRequestDurationMicroseconds = new client.Histogram({
+  name: 'http_request_duration_seconds',
+  help: 'Duração das requisições HTTP em segundos',
+  labelNames: ['method', 'route', 'code'],
+});
+
+// Middleware
+app.use((req, res, next) => {
+  const end = httpRequestDurationMicroseconds.startTimer();
+  res.on('finish', () => {
+    end({ route: req.route?.path || req.path, code: res.statusCode, method: req.method });
+  });
+  next();
+});
+
+// /metrics
+app.get('/metrics', async (req, res) => {
+  res.set('Content-Type', client.register.contentType);
+  res.end(await client.register.metrics());
+});
+
+// --- Rotas ---
 /**
  * @swagger
  * /usuarios:
@@ -48,4 +73,5 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.listen(PORT, () => {
   console.log(`Servidor rodando em http://localhost:${PORT}`);
   console.log(`Swagger em http://localhost:${PORT}/api-docs`);
+  console.log(`Métricas em http://localhost:${PORT}/metrics`);
 });
